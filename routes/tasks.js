@@ -94,5 +94,104 @@ module.exports = function (router) {
         }
     });
 
+
+    // POST /api/tasks
+    tasksRoute.post(async function (req, res) {
+        try {
+            var { name, description, deadline, completed,
+                  assignedUser, assignedUserName } = req.body;
+
+            // Validate required fields
+            if (typeof name !== 'string' || !name.trim()) {
+                return res.status(400).json({
+                    message: "Task name is required",
+                    data: null
+                });
+            }
+
+            if (typeof deadline !== 'string' ||
+                !deadline.trim() ||
+                isNaN(new Date(deadline).getTime())) {
+                return res.status(400).json({
+                    message: "A valid deadline is required",
+                    data: null
+                });
+            }
+
+            // Validate optional fields
+            if (description !== undefined &&
+                typeof description !== 'string') {
+                return res.status(400).json({
+                    message: "Description must be a string",
+                    data: null
+                });
+            }
+
+            if (completed !== undefined &&
+                typeof completed !== 'boolean') {
+                return res.status(400).json({
+                    message: "Completed must be a boolean",
+                    data: null
+                });
+            }
+
+            if (assignedUser !== undefined &&
+                typeof assignedUser !== 'string') {
+                return res.status(400).json({
+                    message: "Assigned user must be a string",
+                    data: null
+                });
+            }
+
+            if (assignedUserName !== undefined &&
+                typeof assignedUserName !== 'string') {
+                return res.status(400).json({
+                    message: "Assigned user name must be a string",
+                    data: null
+                });
+            }
+
+            // Temporary restriction until user assignment is implemented
+            if (assignedUser && assignedUser !== "") {
+                return res.status(400).json({
+                    message: "Task assignment is not implemented yet",
+                    data: null
+                });
+            }
+
+            if (assignedUserName !== undefined &&
+                assignedUserName !== "unassigned") {
+                return res.status(400).json({
+                    message: "Unassigned tasks must have the name 'unassigned'",
+                    data: null
+                });
+            }
+
+            // Create a new task
+            var task = new Task({
+                name: name,
+                description: description,
+                deadline: deadline,
+                completed: completed,
+                assignedUser: "",
+                assignedUserName: "unassigned"
+            });
+
+            await task.save();
+
+            return res.status(201).json({
+                message: "Task created successfully",
+                data: task
+            });
+
+        } catch (err) {
+            return res.status(500).json({
+                message: "Unable to create task",
+                data: null
+            });
+        }
+    });
+
+
     return router;
 };
