@@ -1,6 +1,4 @@
 var mongoose = require('mongoose');
-
-// Define our task schema
 var TaskSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -28,7 +26,8 @@ var TaskSchema = new mongoose.Schema({
     },
     dateCreated: {
         type: Date,
-        default: Date.now
+        default: Date.now,
+        immutable:true
     }
 });
 

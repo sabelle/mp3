@@ -7,4 +7,5 @@ var express = require('express');
 module.exports = function (app) {
     app.use('/api', require('./home.js')(express.Router()));
     app.use('/api', require('./tasks.js')(express.Router()));
+    app.use('/api', require('./users.js')(express.Router()));
 };

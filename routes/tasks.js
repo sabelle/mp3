@@ -1,11 +1,13 @@
 
-var Task = require('../models/tasks');
+const User = require('../models/users');
+const Task = require('../models/tasks');
+const C = require('../utils/common');
 
 module.exports = function (router) {
 
     // Define routes
-    var tasksRoute = router.route('/tasks');
-    var taskRoute = router.route('/tasks/:id');
+    const tasksRoute = router.route('/tasks');
+    const taskRoute = router.route('/tasks/:id');
 
 
     /* =========================================
@@ -13,157 +15,13 @@ module.exports = function (router) {
     ========================================= */
 
     // GET /api/tasks
-    tasksRoute.get(async function (req, res) {
-        try {
-            // Parse JSON query parameters
-            var where = req.query.where
-                ? JSON.parse(req.query.where)
-                : {};
-
-            var sort = req.query.sort
-                ? JSON.parse(req.query.sort)
-                : {};
-
-            var select = req.query.select
-                ? JSON.parse(req.query.select)
-                : {};
-
-            // Parse pagination parameters
-            var skip = req.query.skip === undefined
-                ? 0
-                : Number(req.query.skip);
-
-            var limit = req.query.limit === undefined
-                ? 100
-                : Number(req.query.limit);
-
-            // Validate pagination
-            if (!Number.isSafeInteger(skip) || skip < 0 ||
-                !Number.isSafeInteger(limit) || limit < 0) {
-                return res.status(400).json({
-                    message: "Invalid skip or limit parameter",
-                    data: null
-                });
-            }
-
-            // Validate query parameter types
-            function isObject(value) {
-                return value !== null &&
-                    typeof value === 'object' &&
-                    !Array.isArray(value);
-            }
-
-            if (!isObject(where) ||
-                !isObject(sort) ||
-                !isObject(select)) {
-                return res.status(400).json({
-                    message: "Invalid query parameter format",
-                    data: null
-                });
-            }
-
-            // Return count instead of documents
-            if (req.query.count === 'true') {
-                var count = await Task.countDocuments(where);
-
-                return res.status(200).json({
-                    message: "OK",
-                    data: count
-                });
-            }
-
-            // Build Mongoose query
-            var query = Task.find(where)
-                .sort(sort)
-                .select(select)
-                .skip(skip)
-                .limit(limit);
-
-            var tasks = await query.exec();
-
-            return res.status(200).json({
-                message: "OK",
-                data: tasks
-            });
-
-        } catch (err) {
-            if (err instanceof SyntaxError) {
-                return res.status(400).json({
-                    message: "Invalid JSON query parameter",
-                    data: null
-                });
-            }
-
-            return res.status(500).json({
-                message: "Unable to retrieve tasks",
-                data: null
-            });
-        }
+    tasksRoute.get((req, res) => {
+        return C.list(Task, req, res, true);
     });
 
-
     // GET /api/tasks/:id
-    taskRoute.get(async function (req, res) {
-        try {
-            var id = req.params.id;
-
-            // Validate MongoDB ObjectId format
-            if (!Task.db.base.isObjectIdOrHexString(id)) {
-                return res.status(404).json({
-                    message: "Task not found",
-                    data: null
-                });
-            }
-
-            // Parse optional select parameter
-            var select = {};
-
-            if (req.query.select !== undefined) {
-                try {
-                    select = JSON.parse(req.query.select);
-                } catch (err) {
-                    return res.status(400).json({
-                        message: "Invalid JSON in select parameter",
-                        data: null
-                    });
-                }
-
-                if (select === null ||
-                    typeof select !== 'object' ||
-                    Array.isArray(select) ||
-                    Object.values(select).some(
-                        value => value !== 0 && value !== 1
-                    )) {
-                    return res.status(400).json({
-                        message: "Invalid select parameter",
-                        data: null
-                    });
-                }
-            }
-
-            // Find task by ID
-            var task = await Task.findById(id)
-                .select(select)
-                .exec();
-
-            if (!task) {
-                return res.status(404).json({
-                    message: "Task not found",
-                    data: null
-                });
-            }
-
-            return res.status(200).json({
-                message: "OK",
-                data: task
-            });
-
-        } catch (err) {
-            return res.status(500).json({
-                message: "Unable to retrieve task",
-                data: null
-            });
-        }
+    taskRoute.get((req, res) => {
+        return C.getOne(Task, req, res, 'Task');
     });
 
 
@@ -172,99 +30,41 @@ module.exports = function (router) {
     ========================================= */
 
     // POST /api/tasks
-    tasksRoute.post(async function (req, res) {
+    tasksRoute.post(async (req, res) => {
         try {
-            var { name, description, deadline, completed,
-                  assignedUser, assignedUserName } = req.body;
+            const input = C.taskInput(req.body);
 
-            // Validate required fields
-            if (typeof name !== 'string' || !name.trim()) {
-                return res.status(400).json({
-                    message: "Task name is required",
-                    data: null
-                });
-            }
+            const task = await C.transaction(async (session) => {
+                const user = await C.resolveAssignee(input, session);
 
-            if (typeof deadline !== 'string' ||
-                !deadline.trim() ||
-                isNaN(new Date(deadline).getTime())) {
-                return res.status(400).json({
-                    message: "A valid deadline is required",
-                    data: null
-                });
-            }
+                // Create the task
+                const [created] = await Task.create(
+                    [{
+                        ...input,
+                        assignedUserName: user ? user.name : 'unassigned'
+                    }],
+                    { session }
+                );
 
-            // Validate optional fields
-            if (description !== undefined &&
-                typeof description !== 'string') {
-                return res.status(400).json({
-                    message: "Description must be a string",
-                    data: null
-                });
-            }
+                // Add pending task to assigned user
+                if (user && !created.completed) {
+                    await User.updateOne(
+                        { _id: user._id },
+                        { $addToSet: { pendingTasks: String(created._id) } },
+                        { session }
+                    );
+                }
 
-            if (completed !== undefined &&
-                typeof completed !== 'boolean') {
-                return res.status(400).json({
-                    message: "Completed must be a boolean",
-                    data: null
-                });
-            }
-
-            if (assignedUser !== undefined &&
-                typeof assignedUser !== 'string') {
-                return res.status(400).json({
-                    message: "Assigned user must be a string",
-                    data: null
-                });
-            }
-
-            if (assignedUserName !== undefined &&
-                typeof assignedUserName !== 'string') {
-                return res.status(400).json({
-                    message: "Assigned user name must be a string",
-                    data: null
-                });
-            }
-
-            // Temporary restriction until user assignment is implemented
-            if (assignedUser && assignedUser !== "") {
-                return res.status(400).json({
-                    message: "Task assignment is not implemented yet",
-                    data: null
-                });
-            }
-
-            if (assignedUserName !== undefined &&
-                assignedUserName !== "unassigned") {
-                return res.status(400).json({
-                    message: "Unassigned tasks must have the name 'unassigned'",
-                    data: null
-                });
-            }
-
-            // Create a new task
-            var task = new Task({
-                name: name,
-                description: description,
-                deadline: deadline,
-                completed: completed,
-                assignedUser: "",
-                assignedUserName: "unassigned"
+                return created;
             });
 
-            await task.save();
-
             return res.status(201).json({
-                message: "Task created successfully",
+                message: 'Task created successfully',
                 data: task
             });
 
         } catch (err) {
-            return res.status(500).json({
-                message: "Unable to create task",
-                data: null
-            });
+            return C.reply(res, err);
         }
     });
 
@@ -274,7 +74,66 @@ module.exports = function (router) {
     ========================================= */
 
     // PUT /api/tasks/:id
-    // To be implemented
+    taskRoute.put(async (req, res) => {
+        try {
+            // Check that the task exists
+            if (!C.validId(req.params.id) ||
+                !await Task.exists({ _id: req.params.id })) {
+                C.missing('Task not found');
+            }
+
+            const input = C.taskInput(req.body);
+
+            const task = await C.transaction(async (session) => {
+                const current = await Task.findById(req.params.id)
+                    .session(session);
+
+                if (!current) {
+                    C.missing('Task not found');
+                }
+
+                const user = await C.resolveAssignee(input, session);
+
+                // Remove task from previous user's pending tasks
+                if (current.assignedUser) {
+                    await User.updateOne(
+                        { _id: current.assignedUser },
+                        { $pull: { pendingTasks: String(current._id) } },
+                        { session }
+                    );
+                }
+
+                // Replace task fields
+                current.name = input.name;
+                current.description = input.description;
+                current.deadline = input.deadline;
+                current.completed = input.completed;
+                current.assignedUser = input.assignedUser;
+                current.assignedUserName = user ? user.name : 'unassigned';
+
+                await current.save({ session });
+
+                // Add task to new user's pending tasks if incomplete
+                if (user && !current.completed) {
+                    await User.updateOne(
+                        { _id: user._id },
+                        { $addToSet: { pendingTasks: String(current._id) } },
+                        { session }
+                    );
+                }
+
+                return current;
+            });
+
+            return res.status(200).json({
+                message: 'Task updated successfully',
+                data: task
+            });
+
+        } catch (err) {
+            return C.reply(res, err);
+        }
+    });
 
 
     /* =========================================
@@ -282,7 +141,42 @@ module.exports = function (router) {
     ========================================= */
 
     // DELETE /api/tasks/:id
-    // To be implemented
+    taskRoute.delete(async (req, res) => {
+        try {
+            if (!C.validId(req.params.id)) {
+                C.missing('Task not found');
+            }
+
+            await C.transaction(async (session) => {
+                const task = await Task.findById(req.params.id)
+                    .session(session);
+
+                if (!task) {
+                    C.missing('Task not found');
+                }
+
+                // Remove task from assigned user's pending tasks
+                if (task.assignedUser) {
+                    await User.updateOne(
+                        { _id: task.assignedUser },
+                        { $pull: { pendingTasks: String(task._id) } },
+                        { session }
+                    );
+                }
+
+                // Delete the task
+                await Task.deleteOne(
+                    { _id: task._id },
+                    { session }
+                );
+            });
+
+            return res.status(204).end();
+
+        } catch (err) {
+            return C.reply(res, err);
+        }
+    });
 
 
     return router;
