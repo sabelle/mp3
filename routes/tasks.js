@@ -3,7 +3,14 @@ var Task = require('../models/tasks');
 
 module.exports = function (router) {
 
+    // Define routes
     var tasksRoute = router.route('/tasks');
+    var taskRoute = router.route('/tasks/:id');
+
+
+    /* =========================================
+       GET
+    ========================================= */
 
     // GET /api/tasks
     tasksRoute.get(async function (req, res) {
@@ -94,6 +101,75 @@ module.exports = function (router) {
         }
     });
 
+
+    // GET /api/tasks/:id
+    taskRoute.get(async function (req, res) {
+        try {
+            var id = req.params.id;
+
+            // Validate MongoDB ObjectId format
+            if (!Task.db.base.isObjectIdOrHexString(id)) {
+                return res.status(404).json({
+                    message: "Task not found",
+                    data: null
+                });
+            }
+
+            // Parse optional select parameter
+            var select = {};
+
+            if (req.query.select !== undefined) {
+                try {
+                    select = JSON.parse(req.query.select);
+                } catch (err) {
+                    return res.status(400).json({
+                        message: "Invalid JSON in select parameter",
+                        data: null
+                    });
+                }
+
+                if (select === null ||
+                    typeof select !== 'object' ||
+                    Array.isArray(select) ||
+                    Object.values(select).some(
+                        value => value !== 0 && value !== 1
+                    )) {
+                    return res.status(400).json({
+                        message: "Invalid select parameter",
+                        data: null
+                    });
+                }
+            }
+
+            // Find task by ID
+            var task = await Task.findById(id)
+                .select(select)
+                .exec();
+
+            if (!task) {
+                return res.status(404).json({
+                    message: "Task not found",
+                    data: null
+                });
+            }
+
+            return res.status(200).json({
+                message: "OK",
+                data: task
+            });
+
+        } catch (err) {
+            return res.status(500).json({
+                message: "Unable to retrieve task",
+                data: null
+            });
+        }
+    });
+
+
+    /* =========================================
+       POST
+    ========================================= */
 
     // POST /api/tasks
     tasksRoute.post(async function (req, res) {
@@ -191,6 +267,22 @@ module.exports = function (router) {
             });
         }
     });
+
+
+    /* =========================================
+       PUT
+    ========================================= */
+
+    // PUT /api/tasks/:id
+    // To be implemented
+
+
+    /* =========================================
+       DELETE
+    ========================================= */
+
+    // DELETE /api/tasks/:id
+    // To be implemented
 
 
     return router;
