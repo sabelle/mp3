@@ -1,18 +1,19 @@
+
 // Get the packages we need
-var express = require('express'),
-    router = express.Router(),
-    mongoose = require('mongoose');
+const express = require('express');
+const router = express.Router();
+const mongoose = require('mongoose');
 
 // Read .env file
 require('dotenv').config();
 
 // Create our Express application
-var app = express();
+const app = express();
 
 // Use environment defined port or 3000
-var port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
-// Connect to a MongoDB --> Uncomment this once you have a connection string!!
+// Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI)
     .then(function () {
         console.log('Connected to MongoDB');
@@ -22,12 +23,13 @@ mongoose.connect(process.env.MONGODB_URI)
     });
 
 // Allow CORS so that backend and frontend could be put on different servers
-var allowCrossDomain = function (req, res, next) {
+const allowCrossDomain = function (req, res, next) {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "X-Requested-With, X-HTTP-Method-Override, Content-Type, Accept");
     res.header("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, OPTIONS");
     next();
 };
+
 app.use(allowCrossDomain);
 
 // Parse URL-encoded and JSON request bodies
@@ -38,5 +40,6 @@ app.use(express.json());
 require('./routes')(app, router);
 
 // Start the server
-app.listen(port);
-console.log('Server running on port ' + port);
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
